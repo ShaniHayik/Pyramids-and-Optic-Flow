@@ -55,13 +55,13 @@ def pyrLaplacianDemo(img_path):
 
     f, ax = plt.subplots(2, lvls + 1)
     plt.gray()
-    for i in range(len(lap_pyr)):
+    for i in range(lvls-1):
         ax[0, i].imshow(lap_pyr[i])
         ax[1, i].hist(lap_pyr[i].ravel(), 256, [lap_pyr[i].min(), lap_pyr[i].max()])
 
     ax[0, -1].set_title('Original Image')
-    # ax[0, -1].imshow(re_lap)
-    # ax[1, -1].hist(re_lap.ravel(), 256, [0, 1])
+    ax[0, -1].imshow(re_lap)
+    ax[1, -1].hist(re_lap.ravel(), 256, [0, 1])
     plt.show()
 
 
@@ -88,9 +88,9 @@ def blendDemo():
 def main():
     img_path = 'input/boxman.jpg'
     lkDemo(img_path)
-    #pyrGaussianDemo('input/pyr_bit.jpg')
-    #pyrLaplacianDemo('input/pyr_bit.jpg')
-    #blendDemo()
+    pyrGaussianDemo('input/pyr_bit.jpg')
+    pyrLaplacianDemo('input/pyr_bit.jpg')
+    blendDemo()
 
 
 if __name__ == '__main__':
