@@ -55,7 +55,7 @@ def pyrLaplacianDemo(img_path):
 
     f, ax = plt.subplots(2, lvls + 1)
     plt.gray()
-    for i in range(lvls-1):
+    for i in range(lvls):
         ax[0, i].imshow(lap_pyr[i])
         ax[1, i].hist(lap_pyr[i].ravel(), 256, [lap_pyr[i].min(), lap_pyr[i].max()])
 

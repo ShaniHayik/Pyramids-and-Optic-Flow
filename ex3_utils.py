@@ -6,99 +6,68 @@ from scipy.ndimage.filters import convolve as sconvolve
 from numpy import linalg as LA
 import matplotlib.pyplot as plt
 
+ROWS = 0
+SHORTEST_FILTER = 1
 MIN_DIM = 16
 COLS = 1
-ROWS = 0
-LARGEST_PYR = 0
-SMALLEST_PYR = -1
-REVERSED = -1
-SHORTEST_FILTER = 1
-PYR = 0
-NORMALIZE_FACTOR = 255
-GRAYSCALE = 1
-RGB = 2
-RED = 0
-GREEN = 1
 
 
 def opticalFlow(im1: np.ndarray, im2: np.ndarray, step_size=10, win_size=5) -> (np.ndarray, np.ndarray):
     xy_ans = []
     uv_ans = []
+    w = int(win_size / 2)
 
-    if (not isgray(im1)):
+    if isgray(im1) == False:
         im1 = cv2.cvtColor(im1, cv2.COLOR_BGR2GRAY)
-    if (not isgray(im2)):
+    if isgray(im2) == False:
         im2 = cv2.cvtColor(im2, cv2.COLOR_BGR2GRAY)
 
-    kernely = np.array([[1, 1, 1], [0, 0, 0], [-1, -1, -1]])
-    kernelx = np.array([[1, 0, -1], [1, 0, -1], [1, 0, -1]])
+    y = np.array([[1, 1, 1], [0, 0, 0], [-1, -1, -1]])
+    x = np.array([[1, 0, -1], [1, 0, -1], [1, 0, -1]])
 
-    Ix = cv2.filter2D(im2, -1, kernelx)
+    Ix = cv2.filter2D(im2, -1, x)
     Ix = cv2.GaussianBlur(Ix, (5, 5), 0)
-    Iy = cv2.filter2D(im2, -1, kernely)
+    Iy = cv2.filter2D(im2, -1, y)
     Iy = cv2.GaussianBlur(Iy, (5, 5), 0)
     It = im2 - im1
 
-    w = int(win_size / 2)
     for i in range(w, im1.shape[0] - w, step_size):
         for j in range(w, im1.shape[1] - w, step_size):
             ix = Ix[i - w:i + w + 1, j - w:j + w + 1].flatten()
             iy = Iy[i - w:i + w + 1, j - w:j + w + 1].flatten()
             it = It[i - w:i + w + 1, j - w:j + w + 1].flatten()
-            B = it.reshape(it.shape[0], 1) * (-1)
-            A = np.full((win_size ** 2, 2), 0)
-            A[:, 0] = ix
-            A[:, 1] = iy
-            At = np.transpose(A)
-            ATA = At.dot(A)
+            a2 = it.reshape(it.shape[0], 1)*(-1)
+            a1 = np.full((win_size ** 2, 2), 0)
+            a1[:, 0] = ix
+            a1[:, 1] = iy
+            At = np.transpose(a1)
+            ATA = At.dot(a1)
+            eg, v = LA.eig(ATA)
+            eg = np.sort(eg)
+            l1 = eg[-1]
+            l2 = eg[-2]
 
-            eginvalue, v = LA.eig(ATA)
-            eginvalue = np.sort(eginvalue)
-            l1 = eginvalue[-1]
-            l2 = eginvalue[-2]
-
-            if (l2 > 1) and (l1 / l2) < 100:
-                ATAreverse = LA.inv(ATA)
-                z = At.dot(B)
-                v = ATAreverse.dot(z)
-                xy_ans.append([j, i])
+            if (l1 / l2) < 100 and (l2 > 1):
+                temp = At.dot(a2)
+                ATAr = LA.inv(ATA)
+                v = ATAr.dot(temp)
                 uv_ans.append(v)
+                xy_ans.append([j, i])
+
     xy_ans = np.asarray(xy_ans)
     uv_ans = np.asarray(uv_ans)
-    return (xy_ans, uv_ans)
-
-def isgray(img):
-    if len(img.shape) < 3: return True
-    if img.shape[2] == 1: return True
-    b, g, r = img[:, :, 0], img[:, :, 1], img[:, :, 2]
-    if (b == g).all() and (b == r).all(): return True
-    return False
-
-
-def subsample(img, param):
-    return img[0:-1:param]
+    return xy_ans, uv_ans
 
 
 def gaussianPyr(img: np.ndarray, levels: int = 4) -> List[np.ndarray]:
-    filter_vec = get_filter(10)
-    pyr = [img]
-    for i in range(levels - 1):
-        if pyr[i].shape[ROWS] // 2 <= MIN_DIM or pyr[i].shape[COLS] // 2 <= MIN_DIM:
-            break
-        pyr.append(reduce(pyr[i], filter_vec))
-
-    return pyr
-
-
-def get_filter(filter_size):
-    if filter_size == SHORTEST_FILTER:
-        return np.expand_dims(np.ones(SHORTEST_FILTER), ROWS)
-    ones = np.ones(2)
-    filter_vec = ones
-    for i in range(filter_size - 2):
-        filter_vec = np.convolve(filter_vec, ones)
-    normed_filter = filter_vec / np.sum(filter_vec)
-    return np.expand_dims(normed_filter, ROWS)
+    pyrLst = [img]
+    gauss = cv2.getGaussianKernel(5, sigma=(0.3+0.8))
+    gauss = np.outer(gauss, gauss.transpose())
+    for i in range(1, levels):
+        Imgt = cv2.filter2D(pyrLst[i-1], -1, gauss)
+        Imgt = Imgt[:: 2, :: 2]
+        pyrLst.append(Imgt)
+    return pyrLst
 
 
 def reduce(im, filter_vec):
@@ -114,39 +83,40 @@ def blur(im, filter_vec):
     return np.transpose(col_blurred)
 
 
-def gaussExpand(img: np.ndarray, gs: np.ndarray) -> np.ndarray:
-    if (len(img.shape) == 2):
+def gaussExpand(img: np.ndarray, gs_k: np.ndarray) -> np.ndarray:
+    gs_k = (gs_k * 4) / gs_k.sum()
+
+    if np.size(img.shape) == 2:
         w, h = img.shape
-        imgNew = np.full((2 * w, 2 * h), 0, dtype=img.dtype)
-        imgNew = imgNew.astype(np.float)
+        imgNew = np.full((2*w, 2*h), 0, dtype=img.dtype).astype(np.float)
         imgNew[::2, ::2] = img
 
-    if (len(img.shape) == 3):
-        w, h, z = img.shape
-        imgNew = np.full((2 * w, 2 * h, z), 0, dtype=img.dtype)
-        imgNew = imgNew.astype(np.float)
+    elif np.size(img.shape) == 3:
+        w, h, t = img.shape
+        imgNew = np.full((2*w, 2*h, t), 0, dtype=img.dtype).astype(np.float)
         imgNew[::2, ::2] = img
 
-    gs = (gs * 4) / gs.sum()
-    ans = cv2.filter2D(imgNew, -1, gs, borderType=cv2.BORDER_DEFAULT)
-
-    return ans
+    imgNew = cv2.filter2D(imgNew, -1, gs_k, borderType=cv2.BORDER_DEFAULT)
+    return imgNew
 
 
 #Creates a Laplacian pyramid
 def laplaceianReduce(img: np.ndarray, levels: int = 4) -> List[np.ndarray]:
-    gaussList = gaussianPyr(img, levels)
     ans = []
+    gauss = gaussianPyr(img, levels)
+    tmp = 0
 
-    for i in range(len(gaussList) - 1):
-        s = gaussList[i + 1]
+    for i in range(len(gauss) - 1):
+        s = gauss[i + 1]
         exp = gaussExpand(s, gaussKernel)
-        a = gaussList[i].shape == exp.shape
-        if (not a): exp = exp[:-1, :-1]
-        newLevel = gaussList[i] - exp
-        ans.append(newLevel)
-    ans.append(gaussList[-1])
-    
+        if gauss[i].shape == exp.shape:
+            tmp = gauss[i].shape
+        if tmp == 0:
+            exp = exp[:-1, :-1]
+        level = gauss[i] - exp
+        ans.append(level)
+
+    ans.append(gauss[-1])
     return ans
 
 
@@ -154,35 +124,44 @@ def laplaceianReduce(img: np.ndarray, levels: int = 4) -> List[np.ndarray]:
 def laplaceianExpand(lap_pyr: List[np.ndarray]) -> np.ndarray:
     lap_list = lap_pyr[::-1]
     ans = lap_list[0]
-    length = len(lap_list)
 
-    for i in range(length - 1):
+    for i in range(len(lap_list) - 1):
         exp = gaussExpand(ans, gaussKernel)
         a = lap_list[i + 1].shape == exp.shape
-        if (not a): exp = exp[:-1, :-1]
+        if a == 0:
+            exp = exp[:-1, :-1]
         ans = (lap_list[i + 1] + exp)
     return ans
 
 
 def pyrBlend(img_1: np.ndarray, img_2: np.ndarray, mask: np.ndarray, levels: int) -> (np.ndarray, np.ndarray):
+    mat = []
     Blendimg = img_1 * mask + img_2 * (1 - mask)
     lapl_pyr1 = laplaceianReduce(img_1, levels)
     lapl_pyr2 = laplaceianReduce(img_2, levels)
-    mat = []
     float_mask = mask.astype(float)
     mask_pyr = gaussianPyr(float_mask, levels)
     Lout = [0] * len(lapl_pyr1)
+
     for i in range(len(lapl_pyr1)):
         Lout[i] = np.multiply(lapl_pyr1[i], mask_pyr[i]) + np.multiply(1 - mask_pyr[i], lapl_pyr2[i])
     for i in range(levels):
         mat.append(mask_pyr[i] * lapl_pyr1[i] + (1 - mask_pyr[i]) * lapl_pyr2[i])
-    Blendedimg2 = laplaceianExpand(mat)
 
+    Blendedimg2 = laplaceianExpand(mat)
     return Blendimg, Blendedimg2
 
+
+def isgray(img):
+    if len(img.shape) < 3: return True
+    if img.shape[2] == 1: return True
+    b, g, r = img[:, :, 0], img[:, :, 1], img[:, :, 2]
+    if (b == g).all() and (b == r).all(): return True
+    return False
 
 gaussKernel = np.array([[1.0278445, 4.10018648, 6.49510362, 4.10018648, 1.0278445],
                         [4.10018648, 16.35610171, 25.90969361, 16.35610171, 4.10018648],
                         [6.49510362, 25.90969361, 41.0435344, 25.90969361, 6.49510362],
                         [4.10018648, 16.35610171, 25.90969361, 16.35610171, 4.10018648],
                         [1.0278445, 4.10018648, 6.49510362, 4.10018648, 1.0278445]])
+
